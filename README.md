@@ -3,7 +3,7 @@
 Bash script that checks permission granted to service principals and the SPs owners
 
 ## Requirements
-Azure CLi
+Azure CLI
 
 ## TODO
 Add flags and parameters to choose file output names.
