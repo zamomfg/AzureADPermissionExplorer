@@ -101,9 +101,17 @@ function getOwners(){
 
 # check requirements
 azReq=$(command -v az)
-if [ $? -ne 0 ] ; then
+if [ $? -ne 0 ]
+then
     echo 'Error: "az" command not found.This script require the Azure CLI to be installed'
-    return 2
+    exit 2
+fi
+
+login=$(az account show 2>&1 /dev/null)
+if [ $? -ne 0 ]
+then
+    echo "Error: Azure CLI is not logged in. Please run az login before running this script"
+    exit 3
 fi
 
 delimiter=";"
