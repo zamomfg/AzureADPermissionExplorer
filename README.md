@@ -8,4 +8,4 @@ Azure CLI
 ## TODO
 Add flags and parameters to choose file output names.
 
-Add a list of high permissions and flag permissions that are on that list in the output and in the console
+~~Add a list of high permissions and flag permissions that are on that list in the output and in the console~~
