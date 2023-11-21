@@ -144,7 +144,7 @@ delimiter=";"
 outputFilenameApps="apps_output.csv"
 outputFilenameOwners="owners_output.csv"
 
-appHeader=("appId" "appDisplayName" "permissionResource" "permissionName" "permissionDescription" "permissionType" "permissionId" "appOwners" "isDangerous" "comment")
+appHeader=("appId" "appDisplayName" "permissionResource" "permissionName" "permissionDescription" "permissionType" "permissionId" "appOwners" "isDangerous" "comment" "LatestPasswordExpiryDate", "LatestKeyExpiryDate")
 printRow true $outputFilenameApps false "${appHeader[@]}"
 
 ownerHeader=("userPrincipalName" "permissionResource" "permissionName" "permissionDescription" "permissionType" "permissionId" "appId" "appDisplayName" "isDangerous" "comment")
@@ -155,6 +155,7 @@ then
 	appList=$1
 else
 	appList=$(az ad app list --all --query "[*].appId" --output tsv)
+    appFullList=$(az ad app list --all)
 fi
 
 for id in $appList
@@ -163,6 +164,9 @@ do
     appDisplayName=$(az ad app show --id $id --query "displayName" | sed 's/\"//g')
     appPermissions=$(az ad app permission list --id $id --query "[*]" | jq -r '.[] | .resourceAppId + ";" + .resourceAccess[].id + ";" + .resourceAccess[].type')
     appOwners=$(az ad app owner list --id $id --query "[*].userPrincipalName" | jq -r '. | join(" ")')
+    
+    appPassSecrets=$(echo -e $appFullList | jq --arg id "$id" '.[] | select(.appId=="$id"), .passwordCredentials[].endDateTime, .keyCredentials[].endDateTime' | sort -r | head -n 1)
+    appKeySecrets=$(echo -e $appFullList | jq --arg id "$id" '.[] | select(.appId=="$id"), .keyCredentials[].endDateTime' | sort -r | head -n 1)
 
     for permissions in $appPermissions
     do
@@ -179,7 +183,7 @@ do
         permissionIsDangerous=$(echo $dangerousPermissions | cut -d' ' -f1)
         dangerousDescription=$(echo $dangerousPermissions | cut -d' ' -f2- -s)
 
-        echoArr=("$id" "$appDisplayName" "$permissionsResourceDisplayName" "$permissionName" "$permissionDesc" "$permissionType" "$permissionId" "$appOwners" "$permissionIsDangerous" "$dangerousDescription")
+        echoArr=("$id" "$appDisplayName" "$permissionsResourceDisplayName" "$permissionName" "$permissionDesc" "$permissionType" "$permissionId" "$appOwners" "$permissionIsDangerous" "$dangerousDescription" "$appPassSecrets" "$appKeySecrets")
         printRow true $outputFilenameApps true "${echoArr[@]}"
 
         for owner in $appOwners
@@ -203,12 +207,14 @@ do
     permissionDesc=$(echo -n $debase | awk -F ";" '{print $4}')
     permissionType=$(echo -n $debase | awk -F ";" '{print $5}')
     permissionId=$(echo -n $debase | awk -F ";" '{print $6}')
+    # appPassSecrets=$(echo -n $debase | awk -F ";" '{print $7}')
+    # appKeySecrets=$(echo -n $debase | awk -F ";" '{print $8}')
 
     dangerousPermissions=$(getDangerousApiPermissions $permissionId)
     permissionIsDangerous=$(echo $dangerousPermissions | cut -d' ' -f1)
     dangerousDescription=$(echo $dangerousPermissions | cut -d' ' -f2- -s)
 
-    echoArr=("$owner" "$permissionsResourceDisplayName" "$permissionName" "$permissionDesc" "$permissionType" "$permissionId" "${ownerPermissionsAppId[$key]}" "${ownerPermissionsAppName[$key]}" "$permissionIsDangerous" "$dangerousDescription")
+    echoArr=("$owner" "$permissionsResourceDisplayName" "$permissionName" "$permissionDesc" "$permissionType" "$permissionId" "${ownerPermissionsAppId[$key]}" "${ownerPermissionsAppName[$key]}" "$permissionIsDangerous" "$dangerousDescription") #"$appPassSecrets" "$appKeySecrets")
 
     printRow false $outputFilenameOwners true "${echoArr[@]}"
 
