@@ -156,7 +156,6 @@ then
 else
 	appList=$(az ad app list --all --query "[*].appId" --output tsv)
     appFullList=$(az ad app list --all)
-    # echo -e $appFullList
 fi
 
 for id in $appList
@@ -166,8 +165,8 @@ do
     appPermissions=$(az ad app permission list --id $id --query "[*]" | jq -r '.[] | .resourceAppId + ";" + .resourceAccess[].id + ";" + .resourceAccess[].type')
     appOwners=$(az ad app owner list --id $id --query "[*].userPrincipalName" | jq -r '. | join(" ")')
     
-    appPassSecrets=$(cat apps.json | jq --arg id "$id" '.value[] | select(.appId=="$id"), .passwordCredentials[].endDateTime, .keyCredentials[].endDateTime' | sort -r | head -n 1)
-    appKeySecrets=$(cat apps.json | jq --arg id "$id" '.value[] | select(.appId=="$id"), .keyCredentials[].endDateTime' | sort -r | head -n 1)
+    appPassSecrets=$(echo -e $appFullList | jq --arg id "$id" '.[] | select(.appId=="$id"), .passwordCredentials[].endDateTime, .keyCredentials[].endDateTime' | sort -r | head -n 1)
+    appKeySecrets=$(echo -e $appFullList | jq --arg id "$id" '.[] | select(.appId=="$id"), .keyCredentials[].endDateTime' | sort -r | head -n 1)
 
     for permissions in $appPermissions
     do
