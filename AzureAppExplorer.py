@@ -1,26 +1,194 @@
-import requests
+import argparse
+from array import array
 import os
 import json
 import datetime
-import argparse
+from prompt_toolkit import Application
+import requests
+from dataclasses import dataclass, field
+from typing import List
+
+# appHeader=("appId" "appDisplayName" "permissionResource" "permissionName" "permissionDescription" "permissionType" "permissionId" "appOwners" "isDangerous" "comment" "LatestPasswordExpiryDate", "LatestKeyExpiryDate")
+# ownerHeader=("userPrincipalName" "permissionResource" "permissionName" "permissionDescription" "permissionType" "permissionId" "appId" "appDisplayName" "isDangerous" "comment")
+
+@dataclass
+class Permission:
+    permission_resource: str
+    permission_id: str
+    permission_scope: str
+    # permission_name: str
+    # permission_description: str
+    # is_iangerous: bool
+    # comment: str
+
+    def __str__(self) -> str:
+        string = f"{self.permission_resource, self.permission_id, self.permission_scope}"
+        return string
+
+@dataclass
+class Owner:
+    upn: str
+    apps: array
+
+    def add_app(self, app: object):
+        self.apps.append(app)
+
+@dataclass
+class Secret:
+    display_name: str
+    end_date: datetime.datetime
+
+    def has_expired(self):
+        return self.end_date < datetime.datetime.now()
+
+@dataclass
+class App:
+    app_id: str
+    display_name: str
+    app_owners : List[Owner] = field(default_factory=list)
+    app_permissions : List[Permission] = field(default_factory=list)
+    secret_keys : List[Secret] = field(default_factory=list)
+    secret_passwords : List[Secret] = field(default_factory=list)
+
+    def add_owner(self, owner: Owner):
+        self.app_owners.append(owner)
+
+    def add_permission(self, permission: Permission):
+        self.app_permissions.append(permission)
+    
+    def add_permissions(self, permissions: List[Permission]):
+        self.app_permissions += permissions
+
+    def add_key(self, key: Secret):
+        self.secret_keys.append(key)
+
+    def add_password(self, password: Secret):
+        self.secret_passwords.append(password)
+
+    def has_active_secrets(self):
+        secrets = self.secret_keys + self.secret_passwords
+
+        if len(secrets) == 0:
+            return "No secrets"
+
+        for secret in secrets:
+            if secret.has_expired() == False:
+                return "Not Expired"
+    
+        return "Expired"
 
 
-# path = os.path.join(os.path.expanduser('~'), ".azure/msal_token_cache.json" )
+    def __str__(self) -> str:
+        string = f"{self.app_id, self.display_name, self.app_owners, self.has_active_secrets()}"
+        return string
 
-# # if os.name != 'nt':
-# print(path)
-# with open(path, "r") as inputFile:
-#     tokenFile = inputFile.read()
-#     jsonTokens= json.loads(tokenFile)
+    @staticmethod
+    def get_header() -> str:
+        string = "app_id,self.display_name,app_owners,has_active_secrets"
+        return string
+
+
+def print_csv(items: list):
+
+    print(App.get_header())
+
+    # print(','.join(map(str,items)))
+    for item in items:
+        print(item)
+
+def get_apps() -> dict:
+    return call_graph_api("https://graph.microsoft.com/v1.0/applications")
+
+def get_owners(app_id) -> dict:
+    url = f"https://graph.microsoft.com/v1.0/applications/{app_id}/owners"
+    return call_graph_api(url)
+
+
+def create_owners(app_id: str) -> List[Owner]:
+    json_dict = get_owners(app_id)
+
+def create_permissions(permission_dict: dict) -> List[Permission]:
+
+    perm_list = []
+    resource_app_id = permission_dict["resourceAppId"]
+    for perm in permission_dict["resourceAccess"]:
+        perm_id = perm["id"]
+        perm_scope = perm["type"]
+        permission = Permission(resource_app_id, perm_id, perm_scope)
+        perm_list.append(permission)
+
+    return perm_list
+
+def create_secret(secret_dict: dict) -> Secret:
+
+    # The time format are not the same. Some uses a fraction of a second
+    # I dont bother to create a regex or to remove the fraction which would be cleaner
+    if "." in secret_dict["endDateTime"]:
+        end_date = datetime.datetime.strptime( secret_dict["endDateTime"], "%Y-%m-%dT%H:%M:%S.%fZ")
+    else:
+        end_date = datetime.datetime.strptime( secret_dict["endDateTime"], "%Y-%m-%dT%H:%M:%SZ")
+    secret = Secret(secret_dict["displayName"], end_date)
+
+    return secret
+
+def create_app(app_dict: dict, app_id: str, app_display_name: str) -> App:
+
+    app_obj = App(app_id, app_display_name)
+
+    if len(app_dict["requiredResourceAccess"]) != 0:
+        # resource_app_id = app_dict["requiredResourceAccess"][0]["resourceAppId"]
+        # for perm in app_dict["requiredResourceAccess"][0]["resourceAccess"]:
+        #     perm_id = perm["id"]
+        #     perm_scope = perm["type"]
+        #     permission = Permission(resource_app_id, perm_id, perm_scope)
+        #     app_obj.add_permission(permission)
+        permissions = create_permissions(app_dict["requiredResourceAccess"][0])
+        app_obj.add_permissions(permissions)
+
+    for password in app_dict["passwordCredentials"]:
+        secret = create_secret(password)
+        app_obj.add_password(secret)
+
+        for password in app_dict["keyCredentials"]:
+            secret = create_secret(password)
+            app_obj.add_key(secret)
+
+    return app_obj
+
+def call_graph_api(url) -> dict:
+    headers = {"Authorization": f"Bearer {args.token}"}
+    resp = requests.get(url, headers=headers)
+    resp_dict = resp.json()
+    return resp_dict
 
 
 parser = argparse.ArgumentParser("parser")
 parser.add_argument("-t", "--token", help="Access Token for Microsoft Graph API", required=True)
 args = parser.parse_args()
 
-headers = {"Authorization": f"Bearer {args.token}"}
-resp = requests.get("https://graph.microsoft.com/v1.0/applications", headers=headers)
+apps = []
+owners = []
 
-resp_dict = resp.json()
 
-print(resp_dict.get("value"))
+if __name__ == "__main__":
+
+    # ------------------
+    # headers = {"Authorization": f"Bearer {args.token}"}
+    # resp = requests.get("https://graph.microsoft.com/v1.0/applications", headers=headers)
+    # resp_dict = resp.json()
+
+    # with open("apps.json", "r") as inputFile:
+    #     tokenFile = inputFile.read()
+    #     resp_dict = json.loads(tokenFile)
+
+    resp_dict = get_apps()
+    # ------------------
+
+    apps_json = resp_dict.get("value")
+
+    for item in apps_json:
+
+        app = create_app(item, item["appId"], item["displayName"])
+        apps.append(app)
+
+    print_csv(apps)
