@@ -1,15 +1,11 @@
 import argparse
-from array import array
 import os
 import json
 import datetime
-from prompt_toolkit import Application
 import requests
 from dataclasses import dataclass, field
 from typing import List
-
-# appHeader=("appId" "appDisplayName" "permissionResource" "permissionName" "permissionDescription" "permissionType" "permissionId" "appOwners" "isDangerous" "comment" "LatestPasswordExpiryDate", "LatestKeyExpiryDate")
-# ownerHeader=("userPrincipalName" "permissionResource" "permissionName" "permissionDescription" "permissionType" "permissionId" "appId" "appDisplayName" "isDangerous" "comment")
+import re
 
 @dataclass
 class Permission:
@@ -28,6 +24,7 @@ class Permission:
 @dataclass
 class Owner:
     upn: str
+    obj_id: str
     apps: List[object] = field(default_factory=list)
 
     def add_app(self, app: object):
@@ -96,17 +93,17 @@ class App:
             own_list.append(own.upn)
 
         if len(own_list) > 0:
-            return ';'.join(map(str,own_list))
+            return ' '.join(map(str,own_list))
         return "No owners"
 
 
     def __str__(self) -> str:
-        string = f"{self.app_id},{self.display_name},{self.print_owners()},{self.has_active_secrets()}"
+        string = f"{self.app_id},{self.display_name},{len(self.app_owners)},{self.print_owners()},{self.has_active_secrets()}"
         return string
 
     @staticmethod
     def get_header() -> str:
-        string = "app_id,self.display_name,app_owners,secrets_status"
+        string = "app_id,self.display_name,number_of_owners,app_owners,secrets_status"
         return string
 
 
@@ -117,8 +114,14 @@ def print_csv(items: list):
     for item in items:
         print(item)
 
-def get_apps() -> dict:
-    return call_graph_api("https://graph.microsoft.com/v1.0/applications")["value"]
+def get_apps(origin: str, file_path=None) -> dict:
+    if origin == "api":
+        return call_graph_api("https://graph.microsoft.com/v1.0/applications")["value"]
+    if origin == "file" and file_path != None:
+        # isExist = os.path.exists(file_path) 
+        with open(file_path, "r") as raw_file:
+            json_file = json.load(raw_file)
+        return json_file
 
 def get_owners(obj_id) -> dict:
     url = f"https://graph.microsoft.com/v1.0/applications/{obj_id}/owners"
@@ -129,9 +132,19 @@ def create_owners(obj_id: str) -> List[Owner]:
     json_dict = get_owners(obj_id)
 
     owner_list = []
+    # print(json_dict)
+    # if "value" not in json_dict:
+    #     return []
     for owner in json_dict["value"]:
-        upn = owner["userPrincipalName"]
 
+        if "userPrincipalName" in owner:
+            upn = owner["userPrincipalName"]
+        elif "appDisplayName" in owner:
+            upn = owner["appDisplayName"]
+        else:
+            raise Exception(f"Cant find onwer in app {obj_id}")
+        
+        obj_id = owner["id"]
 
         owner_obj = None
 
@@ -141,7 +154,7 @@ def create_owners(obj_id: str) -> List[Owner]:
                 break
 
         if owner_obj == None:
-            owner_obj = Owner(upn)
+            owner_obj = Owner(upn, obj_id)
         
         owners.append(owner_obj)
         owner_list.append(owner_obj)
@@ -161,22 +174,20 @@ def create_permissions(permission_dict: dict) -> List[Permission]:
     return perm_list
 
 def create_secret(secret_dict: dict) -> Secret:
-
-    # The time format are not the same. Some uses a fraction of a second
-    # I dont bother to create a regex or to remove the fraction which would be cleaner
-    if "." in secret_dict["endDateTime"]:
-        end_date = datetime.datetime.strptime( secret_dict["endDateTime"], "%Y-%m-%dT%H:%M:%S.%fZ")
-    else:
-        end_date = datetime.datetime.strptime( secret_dict["endDateTime"], "%Y-%m-%dT%H:%M:%SZ")
+    regex = re.search("(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})", secret_dict["endDateTime"])
+    end_date_str = regex.group(1)
+    end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%dT%H:%M:%S")
     secret = Secret(secret_dict["displayName"], end_date)
 
     return secret
 
 def create_app(app_dict: dict, app_id: str, obj_id: str, app_display_name: str) -> App:
 
+    # try:
     app_obj = App(app_id, obj_id, app_display_name)
 
-    owners = create_owners(obj_id)
+    if args.token:
+        owners = create_owners(obj_id)
     app_obj.add_owners(owners)
 
     if len(app_dict["requiredResourceAccess"]) != 0:
@@ -196,18 +207,24 @@ def create_app(app_dict: dict, app_id: str, obj_id: str, app_display_name: str) 
         for password in app_dict["keyCredentials"]:
             secret = create_secret(password)
             app_obj.add_key(secret)
-
+    # except Exception as e:
+    #     print(app_id, obj_id, app_display_name, type(e).__name__, e)
+    #     exit()
     return app_obj
 
 def call_graph_api(url) -> dict:
     headers = {"Authorization": f"Bearer {args.token}"}
     resp = requests.get(url, headers=headers)
     resp_dict = resp.json()
+    if resp.status_code == 401:
+        raise Exception("Error: 401 Unauthorized. Please check that the token is valid")
+
     return resp_dict
 
 
 parser = argparse.ArgumentParser("parser")
-parser.add_argument("-t", "--token", help="Access Token for Microsoft Graph API", required=True)
+parser.add_argument("-t", "--token", help="Access Token for Microsoft Graph API \n get a token like this: az account get-access-token --resource https://graph.microsoft.com", required=False)
+parser.add_argument("-f", "--file", help="Input json file with apps from 'az ad app list' command", required=False)
 
 option_group = parser.add_mutually_exclusive_group()
 option_group.add_argument("-a", "--apps", help="Print Application information", required=False, action='store_true')
@@ -221,10 +238,15 @@ owners = []
 
 if __name__ == "__main__":
 
-    resp_dict = get_apps()
+    if args.token:
+        call_graph_api("https://graph.microsoft.com/v1.0/me")
 
     if args.apps:
-        resp_dict = get_apps()
+        if args.file:
+            resp_dict = get_apps("file", args.file)
+        elif args.token:
+            resp_dict = get_apps("api")
+
 
         for item in resp_dict:
             app_obj = create_app(item, item["appId"], item["id"], item["displayName"])
