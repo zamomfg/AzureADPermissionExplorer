@@ -33,13 +33,14 @@ class Owner:
     def add_app(self, app: object):
         self.apps.append(app)
 
-    # def __eq__(self, other):
-    #     if isinstance(other, Owner):
-    #         return self.upn == other.upn
-    #     return False
-    
-    # def __hash__(self):
-    #     return self.upn.__hash__()
+    def __str__(self) -> str:
+        string = f"{self.upn}"
+        return string
+
+    @staticmethod
+    def get_header() -> str:
+        string = "upn"
+        return string
 
 @dataclass
 class Secret:
@@ -111,7 +112,7 @@ class App:
 
 def print_csv(items: list):
 
-    print(App.get_header())
+    print(items[0].get_header())
 
     for item in items:
         print(item)
@@ -207,6 +208,11 @@ def call_graph_api(url) -> dict:
 
 parser = argparse.ArgumentParser("parser")
 parser.add_argument("-t", "--token", help="Access Token for Microsoft Graph API", required=True)
+
+option_group = parser.add_mutually_exclusive_group()
+option_group.add_argument("-a", "--apps", help="Print Application information", required=False, action='store_true')
+option_group.add_argument("-o", "--owners", help="Print Application owner information", required=False, action='store_true')
+option_group.add_argument("-ap", "--appPermissions", help="Print Application permission information", required=False, action='store_true')
 args = parser.parse_args()
 
 apps = []
@@ -215,23 +221,14 @@ owners = []
 
 if __name__ == "__main__":
 
-    # ------------------
-    # headers = {"Authorization": f"Bearer {args.token}"}
-    # resp = requests.get("https://graph.microsoft.com/v1.0/applications", headers=headers)
-    # resp_dict = resp.json()
-
-    # with open("apps.json", "r") as inputFile:
-    #     tokenFile = inputFile.read()
-    #     resp_dict = json.loads(tokenFile)
-
     resp_dict = get_apps()
-    # ------------------
 
-    # apps_json = resp_dict.get("value")
+    if args.apps:
+        resp_dict = get_apps()
 
-    for item in resp_dict:
+        for item in resp_dict:
+            app_obj = create_app(item, item["appId"], item["id"], item["displayName"])
+            apps.append(app_obj)
 
-        app_obj = create_app(item, item["appId"], item["id"], item["displayName"])
-        apps.append(app_obj)
-
-    print_csv(apps)
+        print_csv(apps)
+    # TODO add printing of owners with permissions. And apps with permissions on each line
