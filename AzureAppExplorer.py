@@ -28,10 +28,18 @@ class Permission:
 @dataclass
 class Owner:
     upn: str
-    apps: array
+    apps: List[object] = field(default_factory=list)
 
     def add_app(self, app: object):
         self.apps.append(app)
+
+    # def __eq__(self, other):
+    #     if isinstance(other, Owner):
+    #         return self.upn == other.upn
+    #     return False
+    
+    # def __hash__(self):
+    #     return self.upn.__hash__()
 
 @dataclass
 class Secret:
@@ -44,6 +52,7 @@ class Secret:
 @dataclass
 class App:
     app_id: str
+    obj_id: str
     display_name: str
     app_owners : List[Owner] = field(default_factory=list)
     app_permissions : List[Permission] = field(default_factory=list)
@@ -52,6 +61,9 @@ class App:
 
     def add_owner(self, owner: Owner):
         self.app_owners.append(owner)
+
+    def add_owners(self, owners: List[Owner]):
+        self.app_owners += owners
 
     def add_permission(self, permission: Permission):
         self.app_permissions.append(permission)
@@ -76,10 +88,19 @@ class App:
                 return "Not Expired"
     
         return "Expired"
+    
+    def print_owners(self):
+        own_list = []
+        for own in self.app_owners:
+            own_list.append(own.upn)
+
+        if len(own_list) > 0:
+            return ';'.join(map(str,own_list))
+        return "No owners"
 
 
     def __str__(self) -> str:
-        string = f"{self.app_id, self.display_name, self.app_owners, self.has_active_secrets()}"
+        string = f"{self.app_id},{self.display_name},{self.print_owners()},{self.has_active_secrets()}"
         return string
 
     @staticmethod
@@ -92,20 +113,39 @@ def print_csv(items: list):
 
     print(App.get_header())
 
-    # print(','.join(map(str,items)))
     for item in items:
         print(item)
 
 def get_apps() -> dict:
-    return call_graph_api("https://graph.microsoft.com/v1.0/applications")
+    return call_graph_api("https://graph.microsoft.com/v1.0/applications")["value"]
 
-def get_owners(app_id) -> dict:
-    url = f"https://graph.microsoft.com/v1.0/applications/{app_id}/owners"
+def get_owners(obj_id) -> dict:
+    url = f"https://graph.microsoft.com/v1.0/applications/{obj_id}/owners"
     return call_graph_api(url)
 
 
-def create_owners(app_id: str) -> List[Owner]:
-    json_dict = get_owners(app_id)
+def create_owners(obj_id: str) -> List[Owner]:
+    json_dict = get_owners(obj_id)
+
+    owner_list = []
+    for owner in json_dict["value"]:
+        upn = owner["userPrincipalName"]
+
+
+        owner_obj = None
+
+        for own in owners:
+            if own.upn == upn:
+                owner_obj = own
+                break
+
+        if owner_obj == None:
+            owner_obj = Owner(upn)
+        
+        owners.append(owner_obj)
+        owner_list.append(owner_obj)
+
+    return owner_list
 
 def create_permissions(permission_dict: dict) -> List[Permission]:
 
@@ -131,9 +171,12 @@ def create_secret(secret_dict: dict) -> Secret:
 
     return secret
 
-def create_app(app_dict: dict, app_id: str, app_display_name: str) -> App:
+def create_app(app_dict: dict, app_id: str, obj_id: str, app_display_name: str) -> App:
 
-    app_obj = App(app_id, app_display_name)
+    app_obj = App(app_id, obj_id, app_display_name)
+
+    owners = create_owners(obj_id)
+    app_obj.add_owners(owners)
 
     if len(app_dict["requiredResourceAccess"]) != 0:
         # resource_app_id = app_dict["requiredResourceAccess"][0]["resourceAppId"]
@@ -184,11 +227,11 @@ if __name__ == "__main__":
     resp_dict = get_apps()
     # ------------------
 
-    apps_json = resp_dict.get("value")
+    # apps_json = resp_dict.get("value")
 
-    for item in apps_json:
+    for item in resp_dict:
 
-        app = create_app(item, item["appId"], item["displayName"])
-        apps.append(app)
+        app_obj = create_app(item, item["appId"], item["id"], item["displayName"])
+        apps.append(app_obj)
 
     print_csv(apps)
