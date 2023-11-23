@@ -106,7 +106,7 @@ class App:
 
     @staticmethod
     def get_header() -> str:
-        string = "app_id,self.display_name,app_owners,has_active_secrets"
+        string = "app_id,self.display_name,app_owners,secrets_status"
         return string
 
 
